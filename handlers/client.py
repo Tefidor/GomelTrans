@@ -65,12 +65,11 @@ async def proccess_cancel(message: types.Message, state: FSMContext):
 # Handler for the State TransRouteState.waiting_for_trans_num state
 async def proccess_trans_num(message: types.Message, state: FSMContext):
     if message.content_type == types.ContentType.TEXT:
-        loop = get_event_loop()
         async with state.proxy() as data:
             # Extracting the value of trans_type from the user's session
             # The initialization took place in the process_transport_type function
             trans_type = data['trans_type']
-        trans_names = await loop.run_in_executor(None, mysql_db.get_trans_name_by_num, message.text, trans_type)
+        trans_names = await mysql_db.get_trans_name_by_num(mysql_db.pool, message.text, trans_type)
         # Checking if there were any transport names found
         if trans_names:
             # Creating an inline keyboard
@@ -97,9 +96,8 @@ async def process_transport_route_callback(callback_query: types.CallbackQuery, 
     # Extract the transport id from the callback data
     trans_id = callback_query.data.replace("trans_id_", "")
 
-    loop = get_event_loop()
-    route_name = await loop.run_in_executor(None, mysql_db.get_trans_by_id, int(trans_id))
-    route_stops = await loop.run_in_executor(None, mysql_db.get_route_by_trans_id, int(trans_id))
+    route_name = await mysql_db.get_trans_by_id(mysql_db.pool, int(trans_id))
+    route_stops = await mysql_db.get_route_by_trans_id(mysql_db.pool, int(trans_id))
 
     # Construct the response message
     response = f"Остановки маршрута {route_name['trans_name']}:"
@@ -125,9 +123,8 @@ async def process_timeboard_for_route_stop(callback_query: types.CallbackQuery):
     # Extract the route id from the callback data
     route_id = callback_query.data.replace("route_id_", "")
 
-    loop = get_event_loop()
     trans_num, trans_name, trans_type, stop_name, timeboard_new = \
-        await loop.run_in_executor(None, mysql_db.get_schedule_by_route_id, int(route_id))
+        await mysql_db.get_schedule_by_route_id(mysql_db.pool, int(route_id))
     timeboard_new = json.loads(timeboard_new)
 
     # Delete the original message from the bot to keep the chat clean
@@ -181,8 +178,7 @@ async def process_stop(message: types.Message):
     sought_stops = None
     # Проверяем тип сообщения
     if message.content_type == types.ContentType.TEXT:
-        loop = get_event_loop()
-        stops = await loop.run_in_executor(None, mysql_db.get_stops_levenshtein_distance, message.text)
+        stops = await mysql_db.get_stops_levenshtein_distance(mysql_db.pool, message.text)
         if not stops:
             await message.answer('Попробуйте ввести название более точно')
         else:
@@ -192,9 +188,7 @@ async def process_stop(message: types.Message):
             else:
                 sought_stops = stops
     elif message.content_type == types.ContentType.LOCATION:
-        loop = get_event_loop()
-        stops = await loop.run_in_executor(None, mysql_db.get_stops_by_location, message.location.latitude,
-                                           message.location.longitude)
+        stops = await mysql_db.get_stops_by_location(mysql_db.pool, message.location.latitude, message.location.longitude)
         if not stops:
             await message.answer('В радиусе 100 метров от точки нету остановок, попробуйте поставить точку геолокации '
                                  'более точно или напишите название остановки текстом')
@@ -217,8 +211,7 @@ async def process_stop_id_callback(callback_query: types.CallbackQuery, state: F
     stop_id = callback_query.data.replace("stop_id_", "")
     await bot.delete_message(callback_query.from_user.id, callback_query.message.message_id)
 
-    loop = get_event_loop()
-    timeboards = await loop.run_in_executor(None, mysql_db.get_schedule_by_stop_id, int(stop_id))
+    timeboards = await mysql_db.get_schedule_by_stop_id(mysql_db.pool, int(stop_id))
 
     now = datetime.datetime.now()
     weekday = now.weekday()  # 0 - Monday, 1 - Tuesday, ..., 5 - Saturday, 6 - Sunday
@@ -283,8 +276,7 @@ async def find_stop_by_name(message, callback_tag):
         message: aiogram.types.Message
         callback_tag: str - tag
     """
-    loop = get_event_loop()
-    rows = await loop.run_in_executor(None, mysql_db.get_stops_levenshtein_distance, message.text)
+    rows = await mysql_db.get_stops_levenshtein_distance(mysql_db.pool, message.text)
     if not rows:
         await message.answer('Попробуйте ввести название более точно')
     else:
@@ -311,9 +303,7 @@ async def find_stop_by_location(message, callback_tag):
         message: aiogram.types.Message
         callback_tag: str - tag
     """
-    loop = get_event_loop()
-    rows = await loop.run_in_executor(None, mysql_db.get_stops_by_location, message.location.latitude,
-                                      message.location.longitude)
+    rows = await mysql_db.get_stops_by_location(mysql_db.pool, message.location.latitude, message.location.longitude)
     if not rows:
         await message.answer(
             'В радиусе 100 метров от точки нету остановок, попробуйте поставить точку геолокации более '
@@ -385,9 +375,8 @@ def bfs_paths(graph, start, goal):
 
 
 async def find_route_with_transfers(start_stop, end_stop):
-    loop = get_event_loop()
-    stops = await loop.run_in_executor(None, mysql_db.get_stops_by_names, start_stop, end_stop)
-    routs = await loop.run_in_executor(None, mysql_db.get_all_routs)
+    stops = await mysql_db.get_stops_by_names(mysql_db.pool,  start_stop, end_stop)
+    routs = await mysql_db.get_all_routs(mysql_db.pool)
     graph = {}
     for route in routs:
         if route["trans_id"] not in graph:
@@ -415,8 +404,8 @@ async def find_route_with_transfers(start_stop, end_stop):
     # Get transport and stop details for the shortest_path
     transport_stop_details = []
     for trans_id, stop_id in shortest_path:
-        transport_details = await loop.run_in_executor(None, mysql_db.get_trans_by_id, trans_id)
-        stop_details = await loop.run_in_executor(None, mysql_db.get_stop_by_id, stop_id)
+        transport_details = await mysql_db.get_trans_by_id(mysql_db.pool, trans_id)
+        stop_details = await mysql_db.get_stop_by_id(mysql_db.pool, stop_id)
         transport_stop_details.append((transport_details, stop_details))
 
     # Format the output
@@ -483,9 +472,7 @@ async def nearest_stop_handler(message: types.Message):
 
 async def process_location(message: types.Message, state: FSMContext):
     if message.content_type == types.ContentType.LOCATION:
-        loop = get_event_loop()
-        closest_stop = await loop.run_in_executor(None, mysql_db.get_nearest_stop, message.location.latitude,
-                                                  message.location.longitude)
+        closest_stop = await mysql_db.get_nearest_stop(mysql_db.pool, message.location.latitude, message.location.longitude)
         await message.answer(f"Ближайшая остановка {closest_stop['stop_name']}", reply_markup=client_kb.get_main_kb())
         await bot.send_location(chat_id=message.chat.id, latitude=closest_stop['latitude'],
                                 longitude=closest_stop['longitude'])
@@ -520,8 +507,7 @@ def format_prices(prices):
 
 # обработка кнопки 💰 (узнать текущие цены на проезд)
 async def price_handler(message: types.Message):
-    loop = get_event_loop()
-    prices = await loop.run_in_executor(None, mysql_db.get_prices)
+    prices = await mysql_db.get_prices(mysql_db.pool)
     await message.answer(format_prices(prices))
 
 
@@ -545,7 +531,7 @@ async def leave_comment_process(message: types.Message, state: FSMContext):
     await state.finish()
 
     # Сохраняем комментарий в базе данных
-    mysql_db.save_comment(message.from_user.id, message.text)
+    mysql_db.save_comment(mysql_db.pool, message.from_user.id, message.text)
 
     await message.answer("Спасибо за ваш комментарий! Он был сохранен.", reply_markup=client_kb.get_main_kb())
 

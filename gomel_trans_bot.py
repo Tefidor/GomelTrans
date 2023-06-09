@@ -1,5 +1,7 @@
+import asyncio
 from aiogram import executor
 from create_bot import dp
+from data_base.mysql_db import init_db
 from handlers import client
 from config.config import get_config_value
 from aiogram.types import ParseMode
@@ -15,6 +17,7 @@ async def send_message_to_admin(text: str):
 
 async def on_startup(dp):
     try:
+        await init_db()
         await send_message_to_admin("Бот запущен!")
         print("Бот запущен!")
     except Exception as e:
@@ -32,6 +35,8 @@ async def on_shutdown(dp):
 
 
 if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(init_db())
     executor.start_polling(
         dispatcher=dp,
         on_startup=on_startup,
