@@ -5,7 +5,6 @@ from data_base import mysql_db
 from create_bot import bot
 from keyboards import client_kb
 from collections import deque
-from asyncio import get_event_loop
 import json
 import datetime
 from config.config import conf
