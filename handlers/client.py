@@ -121,9 +121,8 @@ async def process_transport_route_callback(callback_query: types.CallbackQuery, 
 async def process_timeboard_for_route_stop(callback_query: types.CallbackQuery):
     # Extract the route id from the callback data
     route_id = callback_query.data.replace("route_id_", "")
-
-    trans_num, trans_name, trans_type, stop_name, timeboard_new = \
-        await mysql_db.get_schedule_by_route_id(mysql_db.pool, int(route_id))
+    data = await mysql_db.get_schedule_by_route_id(mysql_db.pool, int(route_id))
+    trans_num, trans_name, trans_type, stop_name, timeboard_new = data.values()
     timeboard_new = json.loads(timeboard_new)
 
     # Delete the original message from the bot to keep the chat clean
@@ -187,7 +186,8 @@ async def process_stop(message: types.Message):
             else:
                 sought_stops = stops
     elif message.content_type == types.ContentType.LOCATION:
-        stops = await mysql_db.get_stops_by_location(mysql_db.pool, message.location.latitude, message.location.longitude)
+        stops = await mysql_db.get_stops_by_location(mysql_db.pool, message.location.latitude,
+                                                     message.location.longitude)
         if not stops:
             await message.answer('В радиусе 100 метров от точки нету остановок, попробуйте поставить точку геолокации '
                                  'более точно или напишите название остановки текстом')
@@ -238,7 +238,7 @@ async def process_stop_id_callback(callback_query: types.CallbackQuery, state: F
             continue
 
         time_list = [datetime.datetime.strptime(time_str, '%H:%M').time() for time_str in time_board]
-        next_hour_time_list = [t for t in time_list if t > now.time() and t <= (
+        next_hour_time_list = [t for t in time_list if now.time() < t <= (
                 datetime.datetime.combine(datetime.date.today(), now.time()) + datetime.timedelta(hours=1)).time()]
 
         if not next_hour_time_list:
@@ -374,7 +374,7 @@ def bfs_paths(graph, start, goal):
 
 
 async def find_route_with_transfers(start_stop, end_stop):
-    stops = await mysql_db.get_stops_by_names(mysql_db.pool,  start_stop, end_stop)
+    stops = await mysql_db.get_stops_by_names(mysql_db.pool, start_stop, end_stop)
     routs = await mysql_db.get_all_routs(mysql_db.pool)
     graph = {}
     for route in routs:
@@ -471,13 +471,23 @@ async def nearest_stop_handler(message: types.Message):
 
 async def process_location(message: types.Message, state: FSMContext):
     if message.content_type == types.ContentType.LOCATION:
-        closest_stop = await mysql_db.get_nearest_stop(mysql_db.pool, message.location.latitude, message.location.longitude)
+        closest_stop = await mysql_db.get_nearest_stop(mysql_db.pool, message.location.latitude,
+                                                       message.location.longitude)
         await message.answer(f"Ближайшая остановка {closest_stop['stop_name']}", reply_markup=client_kb.get_main_kb())
         await bot.send_location(chat_id=message.chat.id, latitude=closest_stop['latitude'],
                                 longitude=closest_stop['longitude'])
         await state.finish()
     else:
         await message.answer('Это что-то не то... Нужно отправить геолокацию!')
+
+
+def format_price(rubles, kopecks):
+    parts = []
+    if rubles != 0:
+        parts.append(f"{int(rubles)} руб.")
+    if kopecks != 0:
+        parts.append(f"{int(kopecks):02d} коп.")
+    return " ".join(parts)
 
 
 def format_prices(prices):
@@ -489,17 +499,19 @@ def format_prices(prices):
 
         if ticket_type not in formatted_prices:
             formatted_prices[ticket_type] = []
-        formatted_prices[ticket_type].append((location, price_value))
+        rubles, kopecks = divmod(price_value, 1)
+        kopecks *= 100  # convert decimal to kopecks
+        formatted_prices[ticket_type].append((location, format_price(rubles, kopecks)))
 
     output = ""
     for ticket_type, info_list in formatted_prices.items():
         if len(info_list) > 1:
             output += f"{ticket_type}:\n"
-            for i, (location, price_value) in enumerate(info_list, 1):
-                output += f"    {i}) {location} - {price_value:.2f}\n"
+            for i, (location, price) in enumerate(info_list, 1):
+                output += f"    {i}) {location} - {price}\n"
         else:
-            location, price_value = info_list[0]
-            output += f"{ticket_type} - {location} - {price_value:.2f}"
+            location, price = info_list[0]
+            output += f"{ticket_type} - {location} - {price}"
         output += "\n"
     return output.strip()
 
