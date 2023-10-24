@@ -74,7 +74,6 @@ async def get_trans_name_by_num(pool, trans_num, trans_type):
     return rows
 
 
-
 async def get_trans_by_id(pool, trans_id):
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cursor:
@@ -183,8 +182,6 @@ async def get_prices(pool):
             """)
             prices = await cursor.fetchall()
     return prices
-
-
 
 
 async def save_comment(pool, user_id, comment):
